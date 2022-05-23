@@ -9,188 +9,147 @@
 #include <functional>
 #include <array>
 
-struct ArgumentDetails {
-	std::string shortCallee{};
-	std::string longCallee{};
-	std::string description{};
-};
+#include <cstdarg>
 
-class _ArgumentBase {
-protected:
-	static const unsigned char CalleeLengthBeforeDescription = 22;
-	bool required = false;
-	std::string calledwith = "";
+namespace ArgPar {
 
-	ArgumentDetails _ArgDetails;
-
-	virtual std::string GetCalleeFormatted() const {
-		std::string calleeFormatted;
-		if(_ArgDetails.shortCallee != "")
-			calleeFormatted += _ArgDetails.shortCallee;
-		if(_ArgDetails.longCallee != "")
-			calleeFormatted += (calleeFormatted.length() ? ", " : "") + _ArgDetails.longCallee;
-		return calleeFormatted;
-	}
-
-public:
-	friend std::ostream& operator<<(std::ostream& os, const _ArgumentBase& ArgBase){
-		std::string calleeFormatted = ArgBase.GetCalleeFormatted();
-		os << "\t" << std::left << std::setw(CalleeLengthBeforeDescription) << calleeFormatted;
-		if(calleeFormatted.length() >= CalleeLengthBeforeDescription)
-			os << std::endl << "\t" << std::string(CalleeLengthBeforeDescription, ' ');
-		os << ArgBase._ArgDetails.description << std::endl;	
-		return os;
-	}
-
-	virtual void ParseArg(std::vector<std::string> Parameters) = 0;
-
-	_ArgumentBase(const ArgumentDetails& ArgDet) : _ArgDetails(ArgDet) {};
-	_ArgumentBase() {};
-
-	void setDescription(std::string description) {_ArgDetails.description = description;}
-	void setShortCallee(std::string shortCallee) {_ArgDetails.shortCallee = shortCallee;}
-	void setLongCallee (std::string longCallee ) {_ArgDetails.longCallee  =  longCallee;}
-
-	// Assign Argument details
-	_ArgumentBase& operator=(const ArgumentDetails& ArgDet){
-		if(ArgDet.description != "")
-			_ArgDetails.description = ArgDet.description;
-		if(ArgDet.shortCallee != "")
-			_ArgDetails.shortCallee = ArgDet.shortCallee;
-		if(ArgDet.longCallee  != "")
-			_ArgDetails.longCallee  = ArgDet.longCallee;
-		return *this;
-	}
-
-	// check if this argument is argument for this callee
-	bool operator==(const std::string& callee) const {
-		return (callee == _ArgDetails.shortCallee || callee == _ArgDetails.longCallee);
-	}
-};
+//?==== most generic stringToType() you'll find out there ====?//
 
 template <typename T>
-const std::string get_type_name()
-{
+std::string get_type_name(){
 #if defined(__clang__)
-    const auto prefix = std::string("[T = ");
-    const auto suffix = "]";
-    const auto function = std::string(__PRETTY_FUNCTION__);
+	const std::string prefix = "[T = ";
+	constexpr auto suffix = "]";
+	const std::string function = __PRETTY_FUNCTION__;
 #elif defined(__GNUC__)
-    const auto prefix = std::string("with T = ");
-    const auto suffix = "; ";
-    const auto function = std::string(__PRETTY_FUNCTION__);
+	const std::string prefix = "with T = ";
+	constexpr auto suffix = "; ";
+	const std::string function = __PRETTY_FUNCTION__;
 #elif defined(__MSC_VER)
-    const auto prefix = std::string("get_type_name<");
-    const auto suffix = ">(void)";
-    const auto function = std::string(__FUNCSIG__);
+	const std::string prefix = "get_type_name<";
+	constexpr auto suffix = ">(void)";
+	const std::string function = __FUNCSIG__;
 #else
 	return typeid(T).name; // return a normally mangled type if compiler does not support demangling
 #endif
-
-    const auto start = function.find(prefix) + prefix.size();
-    const auto end = function.find(suffix);
-    const auto size = end - start;
-
-    return function.substr(start, size);
+	
+	const auto start = function.find(prefix) + prefix.size();
+	const auto end = function.find(suffix);
+	const auto size = end - start;
+	return function.substr(start, size);
 }
 
+// checks if a type T has the >> operator, this works somehow? source: https://stackoverflow.com/a/18603716
+template<class T, typename = decltype(std::declval<std::istream&>() >> std::declval<T&>() )>
+std::true_type 	supports_stream_conversion_test(const T&);
+std::false_type 	supports_stream_conversion_test(...);
+template<class T> using supports_stream_conversion = decltype(supports_stream_conversion_test(std::declval<T>()));
+
+// convert string to type T
 template<typename T>
-struct Parameter {
-	T _value = T();
-	std::string _description = "";
-	std::string _name = "";
-};
+typename std::enable_if<supports_stream_conversion<T>::value, T>::type ToType( std::string& s ){
+	std::stringstream convert(s);
+	T value;
+	convert >> value;
+	if(convert.fail()){
+		convert.clear();
+		std::string dummy;
+		convert >> dummy;
+		const auto conc = "Cannot convert string to " + get_type_name<T>();
+		throw std::invalid_argument(conc);
+	}
+	return value;
+}
+
+// SFINAE, catch class with no >> operator defined, throw error
+template<typename T>
+typename std::enable_if<!supports_stream_conversion<T>::value, T>::type ToType(std::string& s){
+	// give a runtime error that the parameter string can not implicitly be converted to the given type T class
+	// Assert is not used as the type of T is not properly passed
+	throw std::invalid_argument("\n\nConversion from string to "+ get_type_name<T>()+" is not supported.\n"
+						"Either add a custom parser function or extend istream with\n"
+						"std::istream& operator>>(std::istream&, "+ get_type_name<T>()+"&){}\n");
+	return T();
+}
+
+class ArgumentParser;
 
 template<typename... ParamTypes>
-class Argument : public _ArgumentBase {
-	/**
-	 * @brief Parameter class for argument-parameters
-	 * 
-	 * @tparam T the type of the parameter
-	 */
-	template<typename T>
-	class _Parameter {
-		Parameter<T> _P;
-		void init(std::string name, const T& defaultValue, const std::string& description) {
-			_P._name = name;
-			_P._value = defaultValue;
-			_P._description = description;
-		}
+class Argument {
+	friend class ArgumentParser;
 
-	public:
-		_Parameter(std::string name = "", const std::string& description = "", const T& defaultValue = T()){
-			init(name, defaultValue, description);
-		}
-		_Parameter(std::string name, const std::string& description){
-			init(name, T(), description);
-		}
+	static const unsigned char CalleeLengthBeforeDescription = 22;
+	bool required = false;
+	bool has_implicitValues = false;
+	bool has_defaultValues = false;
+	std::string calledwith = "";
 
-		T& value(){return _P._value;}
-		T value() const {return _P._value;}
-
-		std::string& description(){return _P._description;}
-		std::string description() const {return _P._description;}
-		std::string& name(){return _P._name;}
-		std::string name() const {return _P._name;}
-
-		_Parameter& operator=(const Parameter<T>& P){
-			_P._name = P._name;
-			_P._description = P._description;
-			_P._value = P._value;
-			return *this;
-		}
-	};
-
-
-	std::tuple<_Parameter<ParamTypes>...> _ParamTuple;
+	std::vector<std::string> Callees;
+	std::string helpString;
 
 	// Gets the type of the ParamTypes parameter pack at index I
 	template<std::size_t I>
 	using TupleTypeAt = typename std::tuple_element<I, std::tuple<ParamTypes...>>::type;
 
-	//?==== most generic stringToType() you'll find out there ====?//
-	// checks if a type T has the >> operator, this works somehow? source: https://stackoverflow.com/a/18603716
-	template<class T, typename = decltype(std::declval<std::istream&>() >> std::declval<T&>() )>
-	static std::true_type 	supports_stream_conversion_test(const T&);
-	static std::false_type 	supports_stream_conversion_test(...);
-	template<class T> using supports_stream_conversion = decltype(supports_stream_conversion_test(std::declval<T>()));
+	std::tuple<ParamTypes...> _ParamTupleValues;
+	std::tuple<ParamTypes...> _ParamTupleImplicitValues;
+	std::array<std::string, sizeof...(ParamTypes)> _ParamTupleNames;
 
-	// convert string to type T
-	template<typename T>
-	static inline typename std::enable_if<supports_stream_conversion<T>::value, T>::type ToType( std::string& s ){
-		std::stringstream convert(s);
-		T value;
-		convert >> value;
-		if(convert.fail()){
-			convert.clear();
-			std::string dummy;
-			convert >> dummy;
-			throw std::invalid_argument("Cannot convert string to " + get_type_name<T>());
+	const char *escape_table[14] = {
+		"\\0", "1", "2", "3", "4", "5", "6", "\\a", "\\b", "\\t", "\\n", "\\v", "\\f", "\\r"
+	};
+
+	
+
+	template<std::size_t I = 0>
+	typename std::enable_if<I  < sizeof...(ParamTypes), void>::type FormatParameters(std::stringstream& ss) const{
+		ss << "[" << _ParamTupleNames[I];
+		if(has_defaultValues){
+			ss << ": ";
+			if(std::is_same<TupleTypeAt<I>, char>::value){
+				char value = std::get<I>(_ParamTupleValues);
+				if(value >= 32 && value <=126)
+					ss << value;
+				else if (value <= 13)
+					ss << escape_table[value];
+				else
+					ss << (int)value;
+			}
+			else{
+				ss << std::get<I>(_ParamTupleValues);
+			}
 		}
-		return value;
+		ss << "]";
+		FormatParameters<I+1>(ss);
 	}
 
-	// SFINAE, catch class with no >> operator defined, throw error
-	template<typename T>
-	static inline typename std::enable_if<!supports_stream_conversion<T>::value, T>::type ToType(std::string& s){
-		// give a compile time error that the parameter string can not implicitly be converted to the given type T class
-		throw std::invalid_argument("\n\nConversion from string to " + get_type_name<T>() + " is not supported.\n"
-						 "Either add a custom parser function or extend istream with\n"
-						 "std::istream& operator>>(std::istream&, " + get_type_name<T>() + "&){}\n");
-		return T();
+	template<std::size_t I = 0>
+	typename std::enable_if<I == sizeof...(ParamTypes), void>::type FormatParameters(std::stringstream& ss) const {}
+
+	std::string GetCalleeFormatted() const {
+		std::stringstream calleeFormatted;
+		for(int i = 0; i < Callees.size() - 1; i++){
+			calleeFormatted << Callees[i] << ", ";
+		}
+		calleeFormatted << Callees.back();
+		return calleeFormatted.str();
 	}
 
 	//?==== Argument parser logic ====?//
 	// default argument parser, source: https://stackoverflow.com/a/6894436
 	template<std::size_t I = 0>
 	inline typename std::enable_if<I  < sizeof...(ParamTypes), void>::type _ParseArg(std::vector<std::string> Parameters){
+		if(has_implicitValues && I == 0){
+			_setTuple(_ParamTupleValues, _ParamTupleImplicitValues);
+			return;
+		}
 		if(I >= Parameters.size()){
 			std::stringstream exception_error;
-			exception_error << "Not enough paramters for argument: " << calledwith << " default usage: \n";
+			exception_error << "Not enough parameters for argument: " << calledwith << " default usage: \n";
 			exception_error << *this;
 			throw std::out_of_range(exception_error.str());
 		}
-		std::get<I>(_ParamTuple).value() = ToType<TupleTypeAt<I>>(Parameters[I]);
+		std::get<I>(_ParamTupleValues) = ToType<TupleTypeAt<I>>(Parameters[I]);
 		_ParseArg<I+1>(Parameters);
 	}
 
@@ -198,29 +157,30 @@ class Argument : public _ArgumentBase {
 	template<std::size_t I = 0>
 	inline typename std::enable_if<I == sizeof...(ParamTypes), void>::type _ParseArg(std::vector<std::string> Parameters){}
 
-	// Custom parser function wrapper
-	std::function<void(Argument<ParamTypes...>& Arg, std::vector<std::string> Parameters)> _f_ParameterParser = nullptr;
-
 	//?==== handles details per parameter ====?//
 	// Param detail setter
 	template<std::size_t I = 0>
-	inline typename std::enable_if<I  < sizeof...(ParamTypes), void>::type _setparam(std::tuple<Parameter<ParamTypes>...> ParamDetails){
-		std::get<I>(_ParamTuple) = std::get<I>(ParamDetails);
-		_setparam<I+1>(ParamDetails);
+	inline typename std::enable_if<I  < sizeof...(ParamTypes), void>::type _setTuple(std::tuple<ParamTypes...>& dest, std::tuple<ParamTypes...>& src){
+		std::get<I>(dest) = std::get<I>(src);
+		_setTuple<I+1>(dest, src);
 	}
 
 	// SFINAE
 	template<std::size_t I = 0>
-	inline typename std::enable_if<I == sizeof...(ParamTypes), void>::type _setparam(std::tuple<Parameter<ParamTypes>...> ParamDetails){}
+	inline typename std::enable_if<I == sizeof...(ParamTypes), void>::type _setTuple(std::tuple<ParamTypes...>& dest, std::tuple<ParamTypes...>& src){}
 
 
-public:
-	Argument(ArgumentDetails ArgDetails, std::tuple<Parameter<ParamTypes>...> ParamDetails) {
-		_ArgDetails.shortCallee = ArgDetails.shortCallee;
-		_ArgDetails.longCallee = ArgDetails.longCallee;
-		_ArgDetails.description = ArgDetails.description;
-		_setparam(ParamDetails);
+	// Custom parser function wrapper
+	std::function<void(Argument<ParamTypes...>& Arg, std::vector<std::string> Parameters)> _f_ParameterParser = nullptr;
+
+	template<std::size_t I = 0>
+	inline typename std::enable_if<I  < sizeof...(ParamTypes), void>::type InitParamNamesDefault(){
+		_ParamTupleNames[I] = get_type_name<TupleTypeAt<I>>();
+		InitParamNamesDefault<I+1>();
 	}
+
+	template<std::size_t I = 0>
+	inline typename std::enable_if<I == sizeof...(ParamTypes), void>::type InitParamNamesDefault(){}
 
 	void ParseArg(std::vector<std::string> Parameters){
 		if(_f_ParameterParser)
@@ -229,62 +189,83 @@ public:
 			_ParseArg(Parameters);
 	}
 
+public:
+	template<std::size_t N>
+	Argument(std::array<std::string, N> &&ArgNames) 
+		:  Callees(ArgNames.begin(), ArgNames.end()){
+		
+		InitParamNamesDefault();
+
+		std::sort(Callees.begin(), Callees.end(), [] 
+		(const std::string& first, const std::string& second){
+			return first.size() < second.size();
+		});
+	}
+
+	~Argument() = default;
+
+	Argument& ParameterNames(std::array<std::string, sizeof...(ParamTypes)> &&ParameterNames){
+		for(int i = 0; i < sizeof...(ParamTypes); i++)
+			_ParamTupleNames[i] = ParameterNames[i];
+		return *this;
+	}
+
+	
+	Argument& default_value(std::tuple<ParamTypes...> defaultValues){
+		_setTuple(_ParamTupleValues, defaultValues);
+		has_defaultValues = true;
+		return *this;
+	}
+
+	Argument& implicit_value(std::tuple<ParamTypes...> implicitValues){
+		_setTuple(_ParamTupleImplicitValues, implicitValues);
+		has_implicitValues = true;
+		return *this;
+	}
+
+	Argument& Help(std::string help) {helpString = help; return *this;}
+
 	// getter / setter
 
 	template<std::size_t I = 0>
-	inline TupleTypeAt<I> param() const{
-		return std::get<I>(_ParamTuple).value();
-	}
-
+	inline TupleTypeAt<I> param() const{return std::get<I>(_ParamTupleValues);}
 	template<std::size_t I = 0>
-	inline TupleTypeAt<I>& param(){
-		return std::get<I>(_ParamTuple).value();
-	}
-
-	template<std::size_t I = 0>
-	inline void setDescription(std::string desc){
-		std::get<I>(_ParamTuple).description() = desc;
-	}
-	inline void setDescription(std::array<std::string, sizeof...(ParamTypes)> descriptions){
-		_setDescriptions(descriptions); // call recursive foreach tuple handler
-	}
+	inline TupleTypeAt<I>& param(){return std::get<I>(_ParamTupleValues);}
 
 	void setParserFunction(std::function<void(Argument<ParamTypes...>& Arg, std::vector<std::string> Parameters)> f_ParameterParser){
 		_f_ParameterParser = f_ParameterParser;
 	}
-};
 
 
-class Flag : public _ArgumentBase {
-	bool state = 0;
-
-	std::function<void()> _f_ParameterParser = nullptr;
-
-	void ParseArg(std::vector<std::string> Parameters){
-		if(_f_ParameterParser)
-			_f_ParameterParser();
-		// If this function is called it means that the flag was passed, so set state to 1
-		state = 1; 
+	// prints info about the argument
+	friend std::ostream& operator<<(std::ostream& os, const Argument& ArgBase){
+		std::string calleeFormatted = ArgBase.GetCalleeFormatted();
+		os << "\t" << std::left << std::setw(CalleeLengthBeforeDescription) << calleeFormatted;
+		if(calleeFormatted.length() >= CalleeLengthBeforeDescription)
+			os << std::endl << "\t" << std::string(CalleeLengthBeforeDescription, ' ');
+		os << ArgBase.helpString << std::endl;	
+		os << "\tUsage: " << ArgBase.Callees[0];
+		std::stringstream ss;
+		ArgBase.FormatParameters(ss);
+		os << " " << ss.str() << std::endl;
+		return os;
 	}
-
-public:
-	Flag(void){}
-	Flag(const ArgumentDetails& ArgDet) : _ArgumentBase(ArgDet) {};
-
-	void ParseArg(){
-		ParseArg({});
-	}
-
-	void setParserFunction(std::function<void()> f_ParameterParser){
-		_f_ParameterParser = f_ParameterParser;
+	// check if this argument is argument for this callee
+	bool operator==(const std::string& callee) const {
+		return std::find(Callees.begin(), Callees.end(), callee.c_str()) != Callees.end();
 	}
 };
 
+class ArgumentParser {
+
+};
 
 
+}; // end of namespace
 
+using namespace ArgPar;
 
-
+// ProgramName --arg param1 ... paramX
 
 
 
@@ -309,7 +290,6 @@ std::vector<std::string> SplitByDelimiter(std::string source, std::string delimi
 	return split;
 }
 
-
 void parseSSHInput(Argument<std::string, std::string, std::string>& Arg, std::vector<std::string> Params){
 	std::vector<std::string> sshlogin = SplitByDelimiter(Params[0], "@");
 	Arg.param<0>() = sshlogin[0];	// save username
@@ -317,41 +297,27 @@ void parseSSHInput(Argument<std::string, std::string, std::string>& Arg, std::ve
 	Arg.param<2>() =   Params[1];	// save password
 }
 
-// custom classes require an empty constructor
-class myClass {
-public:
-	int param1;
-	double param2;
-	std::string param3;
-};
-
-void parseMyClass(Argument<myClass>& Arg, std::vector<std::string> Params){
-	Arg.param<0>().param1 = std::stoi(Params[0]);	// save param1
-	Arg.param<0>().param2 = std::stod(Params[1]);	// save param2
-	Arg.param<0>().param3 = Params[2];				// save param3
-}
-
-void parseFlagMyClass(myClass& MC){
-	MC.param1 = 25;
-	MC.param2 = 2.3;
-	MC.param3 = "flag set";
-}
-
-
 int main(){
 	// Argument<int> integerArgument;
 	// Argument<std::string, std::string, std::string> sshUser;
-	// Argument<myClass> myClassArgument(parseMyClass);
+	// myClassArgument.setParserFunction(parseMyClass);
 	// Argument<int, double, char, unsigned int> _4ParamArgument({.description = "this is a description for the argument", .shortCallee = "-I", .longCallee = "--Int"});
 
 	Argument<int, double, char, unsigned int> _4ParamArgument(
-		{.shortCallee = "-I", .longCallee = "--Int", .description = "description goes here"},
-		{
-			{},
-			{},
-			{},
-			{}
-		});
+		std::array<std::string, 2>{"-I", "--Test"}
+	);
+
+	Argument<bool> Flag(
+		std::array<std::string, 2>{"-F", "--Flag"}
+	);
+
+	Flag.ParameterNames({"boolean"});
+	Flag.implicit_value(true);
+	_4ParamArgument.Help("This is a help message");
+
+	// _4ParamArgument.ParseArg({"-23", "0.2", "34", "8", "30"});
+
+	// Flag.ParseArg({});
 
 	// myClass MC;
 
@@ -365,7 +331,7 @@ int main(){
 	// sshUser.ParseArg({"ai@192.168.8.1", "lindeni"});
 	// myClassArgument.ParseArg({"1", "0.35", "hello!"});
 	// myClassFlag.ParseArg();
-	_4ParamArgument.ParseArg({"1", "0.2", "h", "hello"});
+	// _4ParamArgument.ParseArg({"1", "0.2", "h", "hello"});
 
 	// std::cout << integerArgument[0] << std::endl;
 	// std::cout << sshUser[0] << std::endl;
@@ -375,10 +341,13 @@ int main(){
 	// std::cout << myClassArgument.get<myClass>(0).param2 << std::endl;
 	// std::cout << myClassArgument.get<myClass>(0).param3 << std::endl;
 
+	std::cout << _4ParamArgument << std::endl;
 	std::cout << _4ParamArgument.param<0>() << std::endl;
 	std::cout << _4ParamArgument.param<1>() << std::endl;
 	std::cout << _4ParamArgument.param<2>() << std::endl;
 	std::cout << _4ParamArgument.param<3>() << std::endl;
+
+	std::cout << std::endl << Flag.param<0>() << std::endl;
 
 	// std::cout << MC.param1 << std::endl;
 	// std::cout << MC.param2 << std::endl;
