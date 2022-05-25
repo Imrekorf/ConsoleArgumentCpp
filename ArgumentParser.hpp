@@ -565,7 +565,7 @@ public:
 						int l = 0;
 						for(;l < Argpos->second._paramcount && i + 1 + k + l < argc; l++){
 							if(isArgument(argv[i+1+k+l]))
-								throw std::out_of_range("Not enough parameters for compound argument -" + std::string(1, argv[i][j]) + " use -h for help");
+								throw std::out_of_range("Not enough parameters for compound argument " + std::string(argv[i]) + " use -h for help");
 							ArgumentData.back().push_back(argv[i+1+k+l]);
 						}
 						k+=l;
