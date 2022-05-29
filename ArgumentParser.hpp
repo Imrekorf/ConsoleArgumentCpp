@@ -99,7 +99,7 @@ class Argument {
 	std::vector<std::string> _ParamNames;
 
 	std::function<void(const std::vector<std::string>&)> _f_ParameterParser = nullptr;
-	std::function<void(const std::vector<std::string>&)> _f_ParameterParserValidator = nullptr;
+	std::function<std::size_t(const std::vector<std::string>&)> _f_ParameterParserValidator = nullptr;
 	// Gets the type of the ParamTypes parameter pack at index I
 	template<std::size_t I, typename ...ParamTypes>
 	using TupleTypeAt = typename std::tuple_element<I, std::tuple<ParamTypes...>>::type;
@@ -130,28 +130,22 @@ class Argument {
 	//?==== Argument parser logic ====?//
 	// default argument parser, source: https://stackoverflow.com/a/6894436
 	void _ParseArg(std::vector<std::string>& Parameters){
+		std::vector<std::string> tempParamValues;
+		std::copy(_ParamValues.begin(), _ParamValues.end(), std::back_inserter(tempParamValues));
 		is_used = true;
-		// If there is a validator, execute validator
-		if(_f_ParameterParserValidator)
-			_f_ParameterParserValidator(Parameters);
-		// If there is a custom parser, execute that instead
-		if(_f_ParameterParser)
-			return _f_ParameterParser(Parameters);
 		// If there are implicit values and no parameters given, use implicit values
-		if(has_implicitValues && Parameters.size() == 0){
-			for(int i = 0; i < _ParamValues.size(); i++)
-				_ParamValues[i] = _ParamImplicitValues[i];
-			return;
-		}
-		for(int i = 0; i < _ParamValues.size(); i++){
-			try{
-				_ParamValues[i] = Parameters[i];
-			}
-			catch(const std::exception& e){
-				// out of range exception.
-				if(has_defaultValues) // we have default values, no problem!.
-					break;
-				else{ // no default values and not enough parameters. Problem!
+		if(has_implicitValues && Parameters.size() == 0)
+			std::copy(_ParamImplicitValues.begin(), _ParamImplicitValues.end(), tempParamValues);
+		else{
+			auto ParamCopyIt = std::copy(Parameters.begin(), Parameters.end()
+			int i = 0;
+			for(; i < Parameters.size(); i++)
+				tempParamValues[i] = Parameters[i];
+			if(i < tempParamValues[i])){ // Not all parameter values were passed
+				if(has_implicitValues){
+					// TODO copy implicit values instead of default values if those are available
+				}
+				if(!has_defaultValues){ // no default values and not enough parameters. Problem!
 					std::stringstream exception_error;
 					exception_error << "Not enough parameters for argument: " << Callees[0] << " default usage: \n\t";
 					exception_error << GetCalleeFormatted() << " ";
@@ -163,6 +157,16 @@ class Argument {
 				}
 			}
 		}
+		// If there is a validator, execute validator
+		if(_f_ParameterParserValidator){
+			std::size_t pos = _f_ParameterParserValidator(Parameters);
+			if(pos)
+				throw invalid_argument("Validator for argument: " + Callees[0] + " failed at position " + std::string(pos));
+		}
+		// If there is a custom parser, execute that instead
+		if(_f_ParameterParser)
+			return _f_ParameterParser(Parameters);
+		
 	}
 
 	// Init parameter names based on variadic list, this creates default param names
@@ -301,11 +305,22 @@ public:
 	/**
 	 * @brief Sets a custom argument parser function. 
 	 * Gets called when the argument is being parsed instead of the default parser. Has access to the parameter vector that would normally be parsed for the argument.
-	 * @param Parser The function to the custom argument parser
+	 * @param Parser The function of the custom argument parser
 	 * @return Argument& The argument reference
 	 */
 	Argument& Action(std::function<void(const std::vector<std::string>&)> Parser){
 		_f_ParameterParser = Parser;
+		return *this;
+	}
+	
+	/**
+	 * @brief Sets a custom validator function. 
+	 * Gets called at the beginning of an arguments parsing function. Should return 0 if validation is passed otherwise the position of the argument that did not pass the validator check
+	 * @param Validator The function of the custom validator
+	 * @return Argument& The argument reference
+	 */
+	Argument& Validator(std::function<std::size_t(const std::vector<std::string>&)> Validator){
+		_f_ParameterParserValidator = Validator;
 		return *this;
 	}
 
