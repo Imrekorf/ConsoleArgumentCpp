@@ -14,6 +14,8 @@
 
 #include <cstdarg>
 
+// TODO: implement argument priority
+
 #define CalleeLengthBeforeDescription 22
 
 namespace ArgPar {
@@ -125,6 +127,7 @@ class Argument {
 	bool has_defaultValues = false;
 	bool is_flag = false;
 	bool is_used = false;
+	bool parseAlways = false;
 	bool needs_parameters = true;
 
 	std::size_t _paramcount = 0;
@@ -146,12 +149,24 @@ class Argument {
 	void FormatParameters(std::stringstream& ss) const{
 		if(is_flag)
 			return;
-		for(int i = 0; i < _ParamNames.size(); i++){
-		ss << "[" << _ParamNames[i];
-		if(has_defaultValues){
-			ss << ": " << _ParamValues[i];
+		for(int i = 0; i < _paramcount; i++){
+			ss << "[" << _ParamNames[i];
+			if(has_implicitValues){
+				std::string implicitStringValue = _ParamImplicitValues[i];
+				// remove trailing 0s
+				if(implicitStringValue.find('.') != std::string::npos){
+					implicitStringValue = implicitStringValue.substr(0, implicitStringValue.find_last_not_of('0')+1);
+					if(implicitStringValue.find('.') == implicitStringValue.size()-1)
+						implicitStringValue = implicitStringValue.substr(0, implicitStringValue.size()-1);
+				}
+				ss << ": " << implicitStringValue;
+			}
+			ss << "] ";
 		}
-		ss << "]";
+		if(has_defaultValues){
+			ss << " default: ";
+			for(int i = 0; i < _paramcount; i++)
+				ss << _ParamNames[i] << "(" << _ParamValues[i] << ") ";
 		}
 	}
 
@@ -161,7 +176,7 @@ class Argument {
 		for(int i = 0; i < Callees.size() - 1; i++){
 			calleeFormatted += Callees[i] + ", ";
 		}
-		calleeFormatted + Callees.back();
+		calleeFormatted += Callees.back();
 		return calleeFormatted;
 	}
 
@@ -179,6 +194,7 @@ class Argument {
 			_f_ArgumentAction({}); // optimatisation for information arguments
 		// Set up vector containing the correct parameter values
 		std::vector<std::string> tempParamValues(_ParamValues.size());
+		std::cout << tempParamValues.size() << std::endl;
 		std::copy(_ParamValues.begin(), _ParamValues.end(), tempParamValues.begin());
 		is_used = true;
 		// If there are implicit values and no parameters given, use implicit values
@@ -188,10 +204,11 @@ class Argument {
 			auto ParamCopyIt = std::copy(Parameters.begin(), Parameters.end(), tempParamValues.begin());
 			if(ParamCopyIt != tempParamValues.end()){ // Not all parameter values were passed
 				std::size_t CopiedCount = ParamCopyIt - tempParamValues.begin();
+				std::cout << CopiedCount << std::endl;
 				if(has_implicitValues) // we have implicit values through!
-					std::copy(_ParamImplicitValues.begin() + CopiedCount, _ParamImplicitValues.end(), tempParamValues.begin());
+					std::copy(_ParamImplicitValues.begin() + CopiedCount, _ParamImplicitValues.end(), ParamCopyIt);
 				else if(has_defaultValues) // or we have default values though!
-					std::copy(_ParamValues.begin() + CopiedCount, _ParamValues.end(), tempParamValues.begin());
+					std::copy(_ParamValues.begin() + CopiedCount, _ParamValues.end(), ParamCopyIt);
 				else{ // no default values and not enough parameters. Problem!
 					std::stringstream exception_error;
 					exception_error << "Not enough parameters for argument: " << Callees[0] << " default usage: \n\t";
@@ -232,7 +249,12 @@ class Argument {
 	// Init implicit values based on variadic list
 	template<std::size_t I = 0, typename ...ParamTypes>
 	typename std::enable_if<I  < sizeof...(ParamTypes), void>::type implicit_value(std::tuple<ParamTypes...> t){
-		_ParamImplicitValues[I] = std::to_string(std::get<I>(t));
+		std::stringstream ss;
+		ss << std::get<I>(t);
+		if(ss.fail() | ss.bad())
+			throw std::invalid_argument("Implicit value for argument " + Callees[0] + " at position " + std::to_string(I) + " is invalid, "\
+										"Conversion from " + get_type_name<TupleTypeAt<I, ParamTypes...>>() + " to string failed.");
+		_ParamImplicitValues[I] = ss.str();
 		implicit_value<I+1, ParamTypes...>(t);
 	}
 	//SFINEA
@@ -242,10 +264,15 @@ class Argument {
 	// Init default values based on variadic list
 	template<std::size_t I = 0, typename ...ParamTypes>
 	typename std::enable_if<I  < sizeof...(ParamTypes), void>::type default_value(std::tuple<ParamTypes...> t){
-		_ParamValues[I] = std::to_string(std::get<I>(t));
+		std::stringstream ss;
+		ss << std::get<I>(t);
+		if(ss.fail() | ss.bad())
+			throw std::invalid_argument("Default value for argument " + Callees[0] + " at position " + std::to_string(I) + " is invalid, "\
+										"Conversion from " + get_type_name<TupleTypeAt<I, ParamTypes...>>() + " to string failed.");
+		_ParamValues[I] = ss.str();
 		default_value<I+1, ParamTypes...>(t);
 	}
-	//SFINEA
+	//SFINEA end condition
 	template<std::size_t I = 0, typename ...ParamTypes>
 	typename std::enable_if<I == sizeof...(ParamTypes), void>::type default_value(std::tuple<ParamTypes...> t){}
 
@@ -332,6 +359,13 @@ public:
 	Argument& Required(){required = true; return *this;}
 
 	/**
+	 * @brief Sets the parse always property
+	 * If an argument is set to be always parsed then even if not all required arguments are passed this argument will still be parsed.
+	 * @return Argument& The argument reference
+	 */
+	Argument& ParseAlways(){parseAlways = true; return *this;}
+
+	/**
 	 * @brief Sets a custom argument parser function. 
 	 * Gets called when the argument is being parsed instead of the default parser. Has access to the parameter vector that would normally be parsed for the argument.
 	 * @param Action The function of the custom argument parser
@@ -408,7 +442,10 @@ public:
 		os << "\t" << std::left << std::setw(CalleeLengthBeforeDescription) << calleeFormatted;
 		if(calleeFormatted.length() >= CalleeLengthBeforeDescription)
 			os << std::endl << "\t" << std::string(CalleeLengthBeforeDescription, ' ');
-		os << ArgBase.helpString << std::endl;	
+		std::string tempHelpString = ArgBase.helpString;
+		for(std::size_t pos = 0; (pos = tempHelpString.find("\n", pos)) != std::string::npos; pos+=CalleeLengthBeforeDescription+1)
+			tempHelpString.replace(pos, 1, "\n\t" + std::string(CalleeLengthBeforeDescription, ' '));
+		os << tempHelpString << std::endl;	
 		os << "\t" << std::right << std::setw(CalleeLengthBeforeDescription + 7) << "Usage: " << ArgBase.Callees[0];
 		std::stringstream ss;
 		ArgBase.FormatParameters(ss);
@@ -424,7 +461,7 @@ public:
 	 * @return false This argument does not contain this callee
 	 */
 	bool operator==(const std::string& callee) const {
-		return std::find(Callees.begin(), Callees.end(), callee.c_str()) != Callees.end();
+		return std::find(Callees.begin(), Callees.end(), callee) != Callees.end();
 	}
 };
 
@@ -522,7 +559,8 @@ public:
 					<< ArgumentParser::Version[1] << std::endl;
 				exit(0);
 				}, false)
-			.Help("Displays the software version");
+			.Help("Displays the software version")
+			.ParseAlways();
 		addFlag("-h", "--help")
 			.Action([&]
 				(const std::vector<std::string>&){
@@ -531,7 +569,8 @@ public:
 						std::cout << pair.second << std::endl;
 					exit(0);
 				}, false)
-			.Help("Displays this message");
+			.Help("Displays this message")
+			.ParseAlways();
 	}
 
 	/**
@@ -550,7 +589,8 @@ public:
 			if(pair.second.required)
 				ReqArgumentCount++;
 		
-		std::vector<std::vector<std::string>> ArgumentData;
+		std::vector<std::pair<Argument*, std::vector<std::string>>> ArgumentData;
+		std::vector<std::pair<Argument*, std::vector<std::string>>> ParseAlwaysArguments;
 
 		// checks if a string is an argument
 		auto isArgument = [](const char* string) -> bool{
@@ -565,15 +605,17 @@ public:
 				if(argv[i][1] != '-' && std::strlen(argv[i]) > 2){
 					int k = 0; // keep track of every parameters for each compound argument;
 					for(int j = 1; j < std::strlen(argv[i]); j++){ // j is argv[i] itterator start at 1 to skip -
-						ArgumentData.push_back(std::vector<std::string>{"-" + std::string(1, argv[i][j])}); // add - argument for later parsing.
 						auto Argpos = Arguments.find("-" + std::string(1, argv[i][j]));
 						if(Argpos == Arguments.end())
 							throw std::invalid_argument("Unkown console argument: -" + std::string(1, argv[i][j]) + " use -h for help");
+						ArgumentData.push_back(std::make_pair(&(Argpos->second), std::vector<std::string>(0))); // add - argument for later parsing.
+						if(Argpos->second.parseAlways)
+							ParseAlwaysArguments.push_back(ArgumentData.back());
 						int l = 0;
 						for(;l < Argpos->second._paramcount && i + 1 + k + l < argc; l++){
 							if(isArgument(argv[i+1+k+l]))
 								throw std::out_of_range("Not enough parameters for compound argument " + std::string(argv[i]) + " use -h for help");
-							ArgumentData.back().push_back(argv[i+1+k+l]);
+							ArgumentData.back().second.push_back(argv[i+1+k+l]);
 						}
 						k+=l;
 						if(Argpos->second.required)
@@ -582,20 +624,24 @@ public:
 					i += k; // k is the amount of parameters parsed
 				}
 				else{
-					ArgumentData.push_back(std::vector<std::string>{argv[i]});
+					// Find argument
+					auto Argpos = Arguments.find(argv[i]);
+					if(Argpos == Arguments.end())
+						throw std::invalid_argument("Unkown console argument: " + std::string(argv[i]) + " use -h for help");
+					// Remove from required Argument count
+					if(Argpos->second.required)
+						ReqArgumentCount--;
+					ArgumentData.push_back(std::make_pair(&(Argpos->second), std::vector<std::string>(0)));
+					if(Argpos->second.parseAlways)
+							ParseAlwaysArguments.push_back(ArgumentData.back());
 					int j = 0;
 					for(; i+j+1 < argc; j++){
 						// check if parameter is actually an argument
 						if(isArgument(argv[i+j+1]))
 							break;
-						ArgumentData.back().push_back(argv[i+j+1]); // add parameters
+						ArgumentData.back().second.push_back(argv[i+j+1]); // add parameters
 					}
-					// remove from required Argument count
-					auto Argpos = Arguments.find(argv[i]);
-					if(Argpos == Arguments.end())
-						throw std::invalid_argument("Unkown console argument: " + std::string(argv[i]) + " use -h for help");
-					if(Argpos->second.required)
-						ReqArgumentCount--;
+					
 
 					i += j;
 				}
@@ -603,12 +649,14 @@ public:
 		}
 		// Check all required arguments were passed
 		if(ReqArgumentCount != 0){
+			for(auto p : ParseAlwaysArguments)
+				p.first->_ParseArg(p.second); // Parse the "parse always" argument regardless of required arguments.
 			std::vector<std::string> missingArguments;
 			for(auto p : Arguments){
 				if(p.second.required){
 					// find the required argument in the passed arguments
-					auto it = std::find_if(ArgumentData.begin(), ArgumentData.end(), [&](std::vector<std::string> argument){
-						return p.second == argument[0];
+					auto it = std::find_if(ArgumentData.begin(), ArgumentData.end(), [&](std::pair<Argument*, std::vector<std::string>> A){
+						return &p.second == A.first; // We can use pointers as both arguments are from the same list
 					});
 					// if it was not found add it
 					if(it == ArgumentData.end())
@@ -619,10 +667,8 @@ public:
 		}
 
 		// Parse the arguments
-		for(auto parameters : ArgumentData){
-			auto Arg = Arguments.find(parameters[0]);	// no need to check as all argnames have been checked at this point.	
-			parameters.erase(parameters.begin());
-			Arg->second._ParseArg(parameters);
+		for(auto _Argument : ArgumentData){
+			_Argument.first->_ParseArg(_Argument.second);
 		}
 
 	}

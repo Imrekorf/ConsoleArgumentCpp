@@ -7,6 +7,7 @@ using namespace ArgPar;
 
 // ProgramName --arg param1 ... paramX
 
+// TODO: Cmake GIT_COMMIT number as define
 #define GIT_COMMIT "00000"
 
 int main(int argc, const char* argv[]){
@@ -14,16 +15,16 @@ int main(int argc, const char* argv[]){
 	ArgumentParser AP("ArgumentParser", 1, 0);
 
 	// Example of an argument with multiple parameters with implicit and default values.
-	AP.addArgument<int, float, char, unsigned int>("-I")
-		.Help("I can handle up to 4 parameters.¨"\
-			  "I don't need to be passed to have values because of my default values, "\
+	AP.addArgument<unsigned int, float, char, int>("-I")
+		.Help("I can handle up to 4 parameters.\n"\
+			  "I don't need to be passed to have values because of my default values,\n"\
 			  "you can also pass between 0 and 4 parameters after which my other values are set by implicit values!")
-		.ImplicitValue(10, 0.5, 'h', -404)				
+		.ImplicitValue(10, 0.5, 'h', -404)
 		.DefaultValue(0, 0, 0, 0);
 
 	// example of an argument with validator to check if value is between 0 and 10
 	AP.addArgument<int>("-J")
-		.Help("I need to be passed because I am required. If Im not passed a MissingRequiredParameter exception will be thrown. Also because Im required I dont need default values!")
+		.Help("I need to be passed because I am required.\nIf Im not passed a MissingRequiredParameter exception will be thrown.\nAlso because Im required I dont need default values!")
 		.Validator([](const std::vector<std::string>& parameters){
 			return !(ToType<int>(parameters[0]) > 0 && ToType<int>(parameters[0]) < 10);
 		})
@@ -38,7 +39,8 @@ int main(int argc, const char* argv[]){
 		.Action([](const std::vector<std::string>&){
 				std::cout << "Software build with git commit: " << std::hex << GIT_COMMIT << std::endl;
 				exit(0);
-		}, false);
+		}, false)
+		.ParseAlways();
 	
 	// example of keeping a reference to the created argument.
 	const Argument& Flag = AP.addFlag("-f", "--flag");
@@ -52,10 +54,10 @@ int main(int argc, const char* argv[]){
 	}
 
 	std::cout << "-I: ";
-	std::cout << AP["-I"].Parse<int>(0) << " ";
+	std::cout << AP["-I"].Parse<unsigned int>(0) << " ";
 	std::cout << AP["-I"].Parse<float>(1) << " ";
 	std::cout << AP["-I"].Parse<char>(2) << " ";
-	std::cout << AP["-I"].Parse<unsigned int>(3) << std::endl;
+	std::cout << AP["-I"].Parse<int>(3) << std::endl;
 	
 	std::cout << "-J: " << AP["-J"].Parse<int>(0) << std::endl;
 	
