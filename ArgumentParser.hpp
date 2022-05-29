@@ -7,13 +7,43 @@
 #include <tuple>
 #include <exception>
 #include <map>
+#include <utility>
 
 #include <functional>
 #include <array>
 
 #include <cstdarg>
 
+#define CalleeLengthBeforeDescription 22
+
 namespace ArgPar {
+
+class ValidatorException : public std::exception {
+	const std::string _message;
+	const std::string _ArgumentName;
+	const std::size_t _ArgumentPosition;
+
+public:
+	ValidatorException(std::string msg, const std::string ArgumentName, const std::size_t ArgumentPosition) 
+		: _message(msg), _ArgumentName(ArgumentName), _ArgumentPosition(ArgumentPosition) {}
+	
+	const char* what() const noexcept override { return _message.c_str(); }
+	const std::string ArgumentName() const {return _ArgumentName;}
+	const std::size_t ArgumentPosition() const {return _ArgumentPosition;}
+};
+
+class MissingRequiredParameter : public std::exception {
+	const std::string _message;
+	const std::vector<std::string> _missingArguments;
+
+public:
+	MissingRequiredParameter(std::string msg, std::vector<std::string> missingArguments) 
+		: _message(msg), _missingArguments(missingArguments) {}
+	
+	const char* what() const noexcept override { return _message.c_str(); }
+	const std::vector<std::string> missingArguments() const {return _missingArguments;}
+};
+
 
 //?==== most generic stringToType() you'll find out there ====?//
 
@@ -47,7 +77,14 @@ std::true_type 		supports_stream_conversion_test(const T&);
 std::false_type 	supports_stream_conversion_test(...);
 template<class T> using supports_stream_conversion = decltype(supports_stream_conversion_test(std::declval<T>()));
 
-// convert string to type T
+/**
+ * @brief Converts a string to a type T
+ * Only converts if the class has a stream >> operator implementation. Otherwise throws an invalid argument exception
+ * @tparam T type to conver to
+ * @param s the string to convert to T
+ * @return const T the converted value
+ * @throws invalid_argument exception if the conversion fails. This can occur if the string is empty
+ */
 template<typename T>
 const typename std::enable_if<supports_stream_conversion<T>::value, T>::type ToType(const std::string& s ) {
 	if(s.empty()){
@@ -82,12 +119,13 @@ class ArgumentParser;
 class Argument {
 	friend class ArgumentParser;
 
-	static const unsigned char CalleeLengthBeforeDescription = 22;
+	
 	bool required = false;
 	bool has_implicitValues = false;
 	bool has_defaultValues = false;
 	bool is_flag = false;
 	bool is_used = false;
+	bool needs_parameters = true;
 
 	std::size_t _paramcount = 0;
 
@@ -98,7 +136,7 @@ class Argument {
 	std::vector<std::string> _ParamImplicitValues;
 	std::vector<std::string> _ParamNames;
 
-	std::function<void(const std::vector<std::string>&)> _f_ParameterParser = nullptr;
+	std::function<void(const std::vector<std::string>&)> _f_ArgumentAction = nullptr;
 	std::function<std::size_t(const std::vector<std::string>&)> _f_ParameterParserValidator = nullptr;
 	// Gets the type of the ParamTypes parameter pack at index I
 	template<std::size_t I, typename ...ParamTypes>
@@ -119,33 +157,42 @@ class Argument {
 
 	// Formats the Callee's
 	std::string GetCalleeFormatted() const {
-		std::stringstream calleeFormatted;
+		std::string calleeFormatted;
 		for(int i = 0; i < Callees.size() - 1; i++){
-			calleeFormatted << Callees[i] << ", ";
+			calleeFormatted += Callees[i] + ", ";
 		}
-		calleeFormatted << Callees.back();
-		return calleeFormatted.str();
+		calleeFormatted + Callees.back();
+		return calleeFormatted;
 	}
 
 	//?==== Argument parser logic ====?//
-	// default argument parser, source: https://stackoverflow.com/a/6894436
+	/**
+	 * @brief Parses parameters given to the argument
+	 * First sets up a buffer containing the values based on implicit parameter values or default values, then performs a validator if set and then calls the custom function set by .Action() if set.
+	 * Implicit values are used over default values if not all parameter values are specified.
+	 * @param Parameters The list of parameters passed through CLI
+	 * @throws out_of_range exception if not enough parameters are passed and no implicit or default values are specified.
+	 * @throws ValidatorException exception if the passed parameter values do not pass the custom validator function. Only applies if validator function is specified.
+	 */
 	void _ParseArg(std::vector<std::string>& Parameters){
-		std::vector<std::string> tempParamValues;
-		std::copy(_ParamValues.begin(), _ParamValues.end(), std::back_inserter(tempParamValues));
+		if(!needs_parameters)
+			_f_ArgumentAction({}); // optimatisation for information arguments
+		// Set up vector containing the correct parameter values
+		std::vector<std::string> tempParamValues(_ParamValues.size());
+		std::copy(_ParamValues.begin(), _ParamValues.end(), tempParamValues.begin());
 		is_used = true;
 		// If there are implicit values and no parameters given, use implicit values
 		if(has_implicitValues && Parameters.size() == 0)
-			std::copy(_ParamImplicitValues.begin(), _ParamImplicitValues.end(), tempParamValues);
+			std::copy(_ParamImplicitValues.begin(), _ParamImplicitValues.end(), tempParamValues.begin());
 		else{
-			auto ParamCopyIt = std::copy(Parameters.begin(), Parameters.end()
-			int i = 0;
-			for(; i < Parameters.size(); i++)
-				tempParamValues[i] = Parameters[i];
-			if(i < tempParamValues[i])){ // Not all parameter values were passed
-				if(has_implicitValues){
-					// TODO copy implicit values instead of default values if those are available
-				}
-				if(!has_defaultValues){ // no default values and not enough parameters. Problem!
+			auto ParamCopyIt = std::copy(Parameters.begin(), Parameters.end(), tempParamValues.begin());
+			if(ParamCopyIt != tempParamValues.end()){ // Not all parameter values were passed
+				std::size_t CopiedCount = ParamCopyIt - tempParamValues.begin();
+				if(has_implicitValues) // we have implicit values through!
+					std::copy(_ParamImplicitValues.begin() + CopiedCount, _ParamImplicitValues.end(), tempParamValues.begin());
+				else if(has_defaultValues) // or we have default values though!
+					std::copy(_ParamValues.begin() + CopiedCount, _ParamValues.end(), tempParamValues.begin());
+				else{ // no default values and not enough parameters. Problem!
 					std::stringstream exception_error;
 					exception_error << "Not enough parameters for argument: " << Callees[0] << " default usage: \n\t";
 					exception_error << GetCalleeFormatted() << " ";
@@ -159,13 +206,16 @@ class Argument {
 		}
 		// If there is a validator, execute validator
 		if(_f_ParameterParserValidator){
-			std::size_t pos = _f_ParameterParserValidator(Parameters);
+			std::size_t pos = _f_ParameterParserValidator(tempParamValues);
 			if(pos)
-				throw invalid_argument("Validator for argument: " + Callees[0] + " failed at position " + std::string(pos));
+				throw ValidatorException(("Validator for argument: " + Callees[0] + " failed at position " + std::to_string(pos)), Callees[0], pos);
 		}
+
 		// If there is a custom parser, execute that instead
-		if(_f_ParameterParser)
-			return _f_ParameterParser(Parameters);
+		if(needs_parameters && _f_ArgumentAction)
+			_f_ArgumentAction(tempParamValues);
+		// Copy the values if everything went well
+		std::copy(tempParamValues.begin(), tempParamValues.end(), _ParamValues.begin());
 		
 	}
 
@@ -219,32 +269,11 @@ public:
 	 * @param ArgName2 Second Possible Argument Callee, Single character prefix with -, multi character prefix with --
 	 */
 	Argument(std::size_t paramcount, std::string ArgName, std::string ArgName2 = "") 
-		: _paramcount(paramcount), Callees(1), _ParamValues(paramcount), _ParamImplicitValues(paramcount), _ParamNames(paramcount){
-		
+		: _paramcount(paramcount), Callees(1), _ParamValues(paramcount), 
+		  _ParamImplicitValues(paramcount), _ParamNames(paramcount){
 		Callees[0] = ArgName;
 		if(!ArgName2.empty())
 			Callees.push_back(ArgName2);
-	}
-
-	/**
-	 * @brief Copy operator
-	 * 
-	 * @param A The argument to copy from
-	 * @return Argument& The argument reference
-	 */
-	Argument& operator=(const Argument& A) {
-		required = A.required;
-		has_implicitValues = A.has_implicitValues;
-		has_defaultValues = A.has_defaultValues;
-		is_flag = A.is_flag;
-		std::copy(A.Callees.begin(), A.Callees.end(), Callees.begin());
-		helpString = A.helpString;
-		std::copy(A._ParamValues.begin(), A._ParamValues.end(), _ParamValues.begin());
-		std::copy(A._ParamImplicitValues.begin(), A._ParamImplicitValues.end(), _ParamImplicitValues.begin());
-		std::copy(A._ParamNames.begin(), A._ParamNames.end(), _ParamNames.begin());
-		_f_ParameterParser = A._f_ParameterParser;
-		_f_ParameterParserValidator = A._f_ParameterParserValidator;
-		return *this;
 	}
 
 	/**
@@ -305,11 +334,13 @@ public:
 	/**
 	 * @brief Sets a custom argument parser function. 
 	 * Gets called when the argument is being parsed instead of the default parser. Has access to the parameter vector that would normally be parsed for the argument.
-	 * @param Parser The function of the custom argument parser
+	 * @param Action The function of the custom argument parser
+	 * @param needs_parameters if the action does not need any parameters, for example information flags, then this can be set to false to execute the action function before parsing, giving slight performance improvements
 	 * @return Argument& The argument reference
 	 */
-	Argument& Action(std::function<void(const std::vector<std::string>&)> Parser){
-		_f_ParameterParser = Parser;
+	Argument& Action(std::function<void(const std::vector<std::string>&)> Action, bool needs_parameters = true){
+		this->needs_parameters = needs_parameters;
+		_f_ArgumentAction = Action;
 		return *this;
 	}
 	
@@ -345,11 +376,14 @@ public:
 	 * @tparam T The type to parse the string to
 	 * @param idx the position of the parameter to parse
 	 * @return T The parsed value
+	 * @throws out_of_range exception if idx is bigger or equal to the size of the parameter list
+	 * @throws out_of_range exception if stored parameter value is an empty string.
 	 */
 	template<typename T> T Parse(std::size_t idx) const {
-		if(_ParamValues[idx].empty()){
+		if(idx >= _ParamValues.size())
+			throw std::out_of_range("Argument " + Callees[0] + "'s parameter "  + std::to_string(idx) + " is out of range!");
+		if(_ParamValues[idx].empty())
 			throw std::out_of_range("Argument " + Callees[0] + "'s parameter "  + std::to_string(idx) + " was not set!");
-		}
 		return ToType<T>(_ParamValues[idx]);}
 
 	/**
@@ -392,53 +426,6 @@ public:
 	bool operator==(const std::string& callee) const {
 		return std::find(Callees.begin(), Callees.end(), callee.c_str()) != Callees.end();
 	}
-
-	/**
-	 * @brief Compares Arguments based on Callees
-	 * 
-	 * @param A The argument to compare to
-	 * @return true A is bigger than this
-	 * @return false A is smaller than this
-	 */
-	bool operator<(const Argument& A){
-		if(Callees[0].size() != A.Callees[0].size()) return Callees[0].size() < A.Callees[0].size();
-		return Callees[0] < A.Callees[0];
-	}
-
-	/**
-	 * @brief Compares Arguments based on Callees
-	 * 
-	 * @param A The argument to compare to
-	 * @return true A is bigger or equal to this
-	 * @return false A is smaller than this
-	 */
-	bool operator<=(const Argument& A){
-		if(Callees[0].size() != A.Callees[0].size()) return Callees[0].size() <= A.Callees[0].size();
-		return Callees[0] <= A.Callees[0];
-	}
-
-	/**
-	 * @brief Compares Arguments based on Callees
-	 * 
-	 * @param A The argument to compare to
-	 * @return true A is smaller or equal to this
-	 * @return false A is bigger than this
-	 */
-	bool operator>=(const Argument& A){
-		if(Callees[0].size() != A.Callees[0].size()) return Callees[0].size() >= A.Callees[0].size();
-		return Callees[0] >= A.Callees[0];
-	}
-
-	/**
-	 * @brief Compares Arguments based on Callees
-	 * 
-	 * @param A The argument to compare to
-	 * @return true A is smaller than this
-	 * @return false A is bigger than this
-	 */
-	bool operator>(const Argument& A){
-		return !(*this < A);
-	}
 };
 
 class ArgumentParser {
@@ -465,7 +452,7 @@ class ArgumentParser {
 		ss << "./" << ProgramName << " ";
 		for(const auto& A : Arguments){
 			if(A.second.required){
-				ss << A.second.Callees[0];
+				ss << A.second.Callees[0] << " ";
 				A.second.FormatParameters(ss);
 				ss << " ";
 			}
@@ -481,6 +468,7 @@ public:
 	 * @param Callee1 First Possible Argument Callee, Single character prefix with -, multi character prefix with --
 	 * @param Callee2 Second Possible Argument Callee, Single character prefix with -, multi character prefix with --
 	 * @return Argument& The argument reference
+	 * @throws runtime_error exception if std::map<std::string, Argument>.insert() failed
 	 */
 	template<typename ...ParamTypes>
 	Argument& addArgument(std::string Callee1, std::string Callee2 = ""){
@@ -496,7 +484,7 @@ public:
 
 		auto [ArgumentPair_it, success] = Arguments.insert({Callee1, Argument{sizeof...(ParamTypes), Callee1, Callee2}});
 		if(!success)
-			throw std::runtime_error("Insertion of argument failed.");
+			throw std::runtime_error("Insertion of argument failed, maybe the Callee is already used.");
 		ArgumentPair_it->second.InitParamNamesDefault<0, ParamTypes...>();
 		return ArgumentPair_it->second;
 	}
@@ -510,8 +498,8 @@ public:
 	 */
 	Argument& addFlag(std::string Callee1, std::string Callee2 = ""){
 		Argument* _flag = &addArgument<bool>(Callee1, Callee2)
-			.implicitValue(true)
-			.defaultValue(false);
+			.ImplicitValue(true)
+			.DefaultValue(false);
 		_flag->is_flag = true;
 		return *_flag;
 	}
@@ -532,8 +520,8 @@ public:
 				(const std::vector<std::string>&){
 				std::cout << "Software version: " << ArgumentParser::Version[0] << "." 
 					<< ArgumentParser::Version[1] << std::endl;
-				exit(1);
-				})
+				exit(0);
+				}, false)
 			.Help("Displays the software version");
 		addFlag("-h", "--help")
 			.Action([&]
@@ -541,16 +529,20 @@ public:
 					std::cout << "Default Usage: " << defaultUsage() << std::endl;
 					for(auto const& pair: Arguments)
 						std::cout << pair.second << std::endl;
-					exit(1);
-				})
+					exit(0);
+				}, false)
 			.Help("Displays this message");
 	}
 
 	/**
-	 * @brief 
+	 * @brief Parses the command line arguments
 	 * 
-	 * @param argc 
-	 * @param argv 
+	 * @param argc The given argument count
+	 * @param argv The list of argument values
+	 * 
+	 * @throws invalid_argument exception if a passed argument is unknown
+	 * @throws out_of_range exception if a compound argument list does not contain enough parameters
+	 * @throws MissingRequiredParameter if any required parameters are missing
 	 */
 	void ParseArguments(const int argc, const char** argv){
 		std::size_t ReqArgumentCount = 0;
@@ -598,20 +590,33 @@ public:
 							break;
 						ArgumentData.back().push_back(argv[i+j+1]); // add parameters
 					}
-					i += j;
-
 					// remove from required Argument count
 					auto Argpos = Arguments.find(argv[i]);
 					if(Argpos == Arguments.end())
 						throw std::invalid_argument("Unkown console argument: " + std::string(argv[i]) + " use -h for help");
 					if(Argpos->second.required)
 						ReqArgumentCount--;
+
+					i += j;
 				}
 			}
 		}
 		// Check all required arguments were passed
-		if(ReqArgumentCount != 0)
-			throw std::out_of_range("Not all required arguments were passed. Default usage: " + defaultUsage());
+		if(ReqArgumentCount != 0){
+			std::vector<std::string> missingArguments;
+			for(auto p : Arguments){
+				if(p.second.required){
+					// find the required argument in the passed arguments
+					auto it = std::find_if(ArgumentData.begin(), ArgumentData.end(), [&](std::vector<std::string> argument){
+						return p.second == argument[0];
+					});
+					// if it was not found add it
+					if(it == ArgumentData.end())
+						missingArguments.push_back(p.second.Callees[0]);
+				}
+			}
+			throw MissingRequiredParameter("Not all required arguments were passed. Default usage: " + defaultUsage(), missingArguments);		
+		}
 
 		// Parse the arguments
 		for(auto parameters : ArgumentData){
@@ -622,10 +627,17 @@ public:
 
 	}
 
-	Argument& operator[](std::string Arg){
-		auto _Arg = Arguments.find(Arg);
+	/**
+	 * @brief Returns a reference to an argument specified by the key
+	 * 
+	 * @param ArgKey The key of the argument
+	 * @return Argument& A reference to the argument
+	 * @throws invalid_argument exception if the argument key does not exist
+	 */
+	Argument& operator[](std::string ArgKey){
+		auto _Arg = Arguments.find(ArgKey);
 		if(_Arg == Arguments.end())
-			throw std::invalid_argument(Arg + " argument does not exist");
+			throw std::invalid_argument(ArgKey + " argument does not exist");
 		else
 			return _Arg->second;
 	}
@@ -635,3 +647,5 @@ std::size_t ArgumentParser::Version[2];
 
 
 }; // end of namespace
+
+#undef CalleeLengthBeforeDescription
