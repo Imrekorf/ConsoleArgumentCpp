@@ -17,13 +17,13 @@ int main(int argc, const char* argv[]){
 
 	AP.ParseArguments(argc, argv);
 
-	std::cout << AP["-I"].parse<int>(0) << std::endl;
-	std::cout << AP["-I"].parse<float>(1) << std::endl;
-	std::cout << AP["-I"].parse<char>(2) << std::endl;
-	std::cout << AP["-I"].parse<unsigned int>(3) << std::endl;
-	std::cout << AP["-J"].parse<int>(0) << std::endl;
-	std::cout << AP["-J"].parse<float>(1) << std::endl;
-	std::cout << AP["-F"].isUsed() << std::endl;
+	std::cout << AP["-I"].Parse<int>(0) << std::endl;
+	std::cout << AP["-I"].Parse<float>(1) << std::endl;
+	std::cout << AP["-I"].Parse<char>(2) << std::endl;
+	std::cout << AP["-I"].Parse<unsigned int>(3) << std::endl;
+	std::cout << AP["-J"].Parse<int>(0) << std::endl;
+	std::cout << AP["-J"].Parse<float>(1) << std::endl;
+	std::cout << AP["-F"].IsUsed() << std::endl;
 
 	return 0;
 }
