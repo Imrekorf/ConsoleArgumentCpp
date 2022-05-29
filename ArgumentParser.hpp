@@ -264,7 +264,7 @@ public:
 	 * @return Argument& The argument reference
 	 */
 	template<typename ...ParamTypes>
-	Argument& defaultValue(ParamTypes... defaultValues){
+	Argument& DefaultValue(ParamTypes... defaultValues){
 		default_value<0, ParamTypes...>(std::tuple<ParamTypes...>(defaultValues...));
 		has_defaultValues = true;
 		return *this;
@@ -278,7 +278,7 @@ public:
 	 * @return Argument& The argument reference
 	 */
 	template<typename ...ParamTypes>
-	Argument& implicitValue(ParamTypes... implicitValues){
+	Argument& ImplicitValue(ParamTypes... implicitValues){
 		implicit_value<0, ParamTypes...>(std::tuple<ParamTypes...>(implicitValues...));
 		has_implicitValues = true;
 		return *this;
@@ -304,7 +304,7 @@ public:
 	 * @param Parser The function to the custom argument parser
 	 * @return Argument& The argument reference
 	 */
-	Argument& action(std::function<void(const std::vector<std::string>&)> Parser){
+	Argument& Action(std::function<void(const std::vector<std::string>&)> Parser){
 		_f_ParameterParser = Parser;
 		return *this;
 	}
@@ -331,7 +331,7 @@ public:
 	 * @param idx the position of the parameter to parse
 	 * @return T The parsed value
 	 */
-	template<typename T> T parse(std::size_t idx) const {
+	template<typename T> T Parse(std::size_t idx) const {
 		if(_ParamValues[idx].empty()){
 			throw std::out_of_range("Argument " + Callees[0] + "'s parameter "  + std::to_string(idx) + " was not set!");
 		}
@@ -343,7 +343,7 @@ public:
 	 * @return true The argument was used
 	 * @return false The argument was not used
 	 */
-	bool isUsed() const {
+	bool IsUsed() const {
 		return is_used;
 	}
 
@@ -513,7 +513,7 @@ public:
 		Version[1] = Minor;
 
 		addFlag("-V", "--Version")
-			.action([&]
+			.Action([&]
 				(const std::vector<std::string>&){
 				std::cout << "Software version: " << ArgumentParser::Version[0] << "." 
 					<< ArgumentParser::Version[1] << std::endl;
@@ -521,7 +521,7 @@ public:
 				})
 			.Help("Displays the software version");
 		addFlag("-h", "--help")
-			.action([&]
+			.Action([&]
 				(const std::vector<std::string>&){
 					std::cout << "Default Usage: " << defaultUsage() << std::endl;
 					for(auto const& pair: Arguments)
