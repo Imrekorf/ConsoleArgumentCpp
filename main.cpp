@@ -52,6 +52,15 @@ int main(int argc, const char* argv[]){
 		std::cout << "Validation for " << VE.ArgumentName() << " failed at position: " << VE.ArgumentPosition() << std::endl;
 		return -1;
 	}
+	catch(const MissingRequiredParameter& MRPE){
+		std::cout << MRPE.what() << std::endl;
+		std::cout << "MissingRequiredParameter: ";
+		for(auto MRP : MRPE.missingArguments()){
+			std::cout << MRP;
+		}
+		std::cout << std::endl;
+		return -1;
+	}
 
 	std::cout << "-I: ";
 	std::cout << AP["-I"].Parse<unsigned int>(0) << " ";

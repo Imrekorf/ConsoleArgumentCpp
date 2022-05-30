@@ -1,20 +1,15 @@
+#include <functional>
+#include <exception>
 #include <iostream>
-#include <string>
-#include <cstring> // for strlen
-#include <vector>
+#include <utility>
 #include <iomanip>
 #include <sstream>
+#include <cstring> // for strlen
+#include <string>
+#include <vector>
+#include <limits>
 #include <tuple>
-#include <exception>
 #include <map>
-#include <utility>
-
-#include <functional>
-#include <array>
-
-#include <cstdarg>
-
-// TODO: implement argument priority
 
 #define CalleeLengthBeforeDescription 22
 
@@ -130,6 +125,8 @@ class Argument {
 	bool parseAlways = false;
 	bool needs_parameters = true;
 
+	std::size_t _priority = 0;
+
 	std::size_t _paramcount = 0;
 
 	std::vector<std::string> Callees;
@@ -194,7 +191,6 @@ class Argument {
 			_f_ArgumentAction({}); // optimatisation for information arguments
 		// Set up vector containing the correct parameter values
 		std::vector<std::string> tempParamValues(_ParamValues.size());
-		std::cout << tempParamValues.size() << std::endl;
 		std::copy(_ParamValues.begin(), _ParamValues.end(), tempParamValues.begin());
 		is_used = true;
 		// If there are implicit values and no parameters given, use implicit values
@@ -390,6 +386,18 @@ public:
 	}
 
 	/**
+	 * @brief Sets the priorety of the argument
+	 * Arguments can be sorted by priorety, A higher priorety means it will be handled before lower priorety arguments.
+	 * Same level priorety arguments are sorted based on input
+	 * @param priorety The priorety of the argument
+	 * @return Argument& The argument reference
+	 */
+	Argument& Priorety(std::size_t priorety){
+		_priority = priorety;
+		return *this;
+	}
+
+	/**
 	 * @brief Gets a string value reference of the parameter based on idx
 	 * 
 	 * @param idx The position of the parameter in the list
@@ -560,7 +568,8 @@ public:
 				exit(0);
 				}, false)
 			.Help("Displays the software version")
-			.ParseAlways();
+			.ParseAlways()
+			.Priorety(std::numeric_limits<std::size_t>::max());
 		addFlag("-h", "--help")
 			.Action([&]
 				(const std::vector<std::string>&){
@@ -570,7 +579,8 @@ public:
 					exit(0);
 				}, false)
 			.Help("Displays this message")
-			.ParseAlways();
+			.ParseAlways()
+			.Priorety(std::numeric_limits<std::size_t>::max());
 	}
 
 	/**
@@ -589,8 +599,14 @@ public:
 			if(pair.second.required)
 				ReqArgumentCount++;
 		
-		std::vector<std::pair<Argument*, std::vector<std::string>>> ArgumentData;
-		std::vector<std::pair<Argument*, std::vector<std::string>>> ParseAlwaysArguments;
+		std::map<
+			std::pair<std::size_t, std::size_t>, 
+			std::pair<Argument*, std::vector<std::string>>, 
+			std::greater<std::pair<std::size_t, std::size_t>>> ArgumentData;
+		std::map<
+			std::pair<std::size_t, std::size_t>, 
+			std::pair<Argument*, std::vector<std::string>>, 
+			std::greater<std::pair<std::size_t, std::size_t>>> ParseAlwaysArguments;
 
 		// checks if a string is an argument
 		auto isArgument = [](const char* string) -> bool{
@@ -598,6 +614,7 @@ public:
 			return (len >= 2 && string[0] == '-' && string[1] != '-' && !std::isdigit(string[1]));
 		};
 
+		std::size_t w = 0;
 		for(int i = 1; i < argc; i++){
 			// check if string starts with -
 			if(isArgument(argv[i])){
@@ -608,15 +625,18 @@ public:
 						auto Argpos = Arguments.find("-" + std::string(1, argv[i][j]));
 						if(Argpos == Arguments.end())
 							throw std::invalid_argument("Unkown console argument: -" + std::string(1, argv[i][j]) + " use -h for help");
-						ArgumentData.push_back(std::make_pair(&(Argpos->second), std::vector<std::string>(0))); // add - argument for later parsing.
-						if(Argpos->second.parseAlways)
-							ParseAlwaysArguments.push_back(ArgumentData.back());
+						auto insertRef = ArgumentData.insert({{Argpos->second._priority, w++}, std::make_pair(&(Argpos->second), std::vector<std::string>(0))}); // add - argument for later parsing.
+						if(!insertRef.second)
+							throw std::runtime_error("Insertion of argument failed, maybe the key is already used.");
 						int l = 0;
 						for(;l < Argpos->second._paramcount && i + 1 + k + l < argc; l++){
 							if(isArgument(argv[i+1+k+l]))
 								throw std::out_of_range("Not enough parameters for compound argument " + std::string(argv[i]) + " use -h for help");
-							ArgumentData.back().second.push_back(argv[i+1+k+l]);
+							insertRef.first->second.second.push_back(argv[i+1+k+l]);
 						}
+						// add to parseAlways if needed
+						if(Argpos->second.parseAlways)
+							ParseAlwaysArguments.insert(*insertRef.first);
 						k+=l;
 						if(Argpos->second.required)
 							ReqArgumentCount--;
@@ -631,17 +651,19 @@ public:
 					// Remove from required Argument count
 					if(Argpos->second.required)
 						ReqArgumentCount--;
-					ArgumentData.push_back(std::make_pair(&(Argpos->second), std::vector<std::string>(0)));
-					if(Argpos->second.parseAlways)
-							ParseAlwaysArguments.push_back(ArgumentData.back());
+					auto insertRef = ArgumentData.insert({{Argpos->second._priority, w++}, std::make_pair(&(Argpos->second), std::vector<std::string>(0))});
+					if(!insertRef.second)
+						throw std::runtime_error("Insertion of argument failed, maybe the key is already used.");
 					int j = 0;
 					for(; i+j+1 < argc; j++){
 						// check if parameter is actually an argument
 						if(isArgument(argv[i+j+1]))
 							break;
-						ArgumentData.back().second.push_back(argv[i+j+1]); // add parameters
+						insertRef.first->second.second.push_back(argv[i+j+1]); // add parameters
 					}
-					
+					// add to parseAlways if needed
+					if(Argpos->second.parseAlways)
+						ParseAlwaysArguments.insert(*insertRef.first);
 
 					i += j;
 				}
@@ -650,13 +672,13 @@ public:
 		// Check all required arguments were passed
 		if(ReqArgumentCount != 0){
 			for(auto p : ParseAlwaysArguments)
-				p.first->_ParseArg(p.second); // Parse the "parse always" argument regardless of required arguments.
+				p.second.first->_ParseArg(p.second.second); // Parse the "parse always" argument regardless of required arguments.
 			std::vector<std::string> missingArguments;
 			for(auto p : Arguments){
 				if(p.second.required){
 					// find the required argument in the passed arguments
-					auto it = std::find_if(ArgumentData.begin(), ArgumentData.end(), [&](std::pair<Argument*, std::vector<std::string>> A){
-						return &p.second == A.first; // We can use pointers as both arguments are from the same list
+					auto it = std::find_if(ArgumentData.begin(), ArgumentData.end(), [&](auto A){
+						return &p.second == A.second.first; // We can use pointers as both arguments are from the same list
 					});
 					// if it was not found add it
 					if(it == ArgumentData.end())
@@ -668,7 +690,7 @@ public:
 
 		// Parse the arguments
 		for(auto _Argument : ArgumentData){
-			_Argument.first->_ParseArg(_Argument.second);
+			_Argument.second.first->_ParseArg(_Argument.second.second);
 		}
 
 	}
