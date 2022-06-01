@@ -703,7 +703,9 @@ public:
 	 * @throws invalid_argument exception if the argument key does not exist
 	 */
 	Argument& operator[](std::string ArgKey){
-		auto _Arg = Arguments.find(ArgKey);
+		auto _Arg = std::find_if(Arguments.begin(), Arguments.end(), [ArgKey](const auto& pair){
+			return pair.second == ArgKey;
+		});
 		if(_Arg == Arguments.end())
 			throw std::invalid_argument(ArgKey + " argument does not exist");
 		else
