@@ -1,4 +1,5 @@
 #include <functional>
+#include <algorithm>
 #include <exception>
 #include <iostream>
 #include <utility>
@@ -146,7 +147,7 @@ class Argument {
 	void FormatParameters(std::stringstream& ss) const{
 		if(is_flag)
 			return;
-		for(int i = 0; i < _paramcount; i++){
+		for(std::size_t i = 0; i < _paramcount; i++){
 			ss << "[" << _ParamNames[i];
 			if(has_implicitValues){
 				std::string implicitStringValue = _ParamImplicitValues[i];
@@ -162,7 +163,7 @@ class Argument {
 		}
 		if(has_defaultValues){
 			ss << " default: ";
-			for(int i = 0; i < _paramcount; i++)
+			for(std::size_t i = 0; i < _paramcount; i++)
 				ss << _ParamNames[i] << "(" << _ParamValues[i] << ") ";
 		}
 	}
@@ -170,7 +171,7 @@ class Argument {
 	// Formats the Callee's
 	std::string GetCalleeFormatted() const {
 		std::string calleeFormatted;
-		for(int i = 0; i < Callees.size() - 1; i++){
+		for(std::size_t i = 0; i < Callees.size() - 1; i++){
 			calleeFormatted += Callees[i] + ", ";
 		}
 		calleeFormatted += Callees.back();
@@ -476,7 +477,7 @@ public:
 class ArgumentParser {
 	std::map<std::string, Argument> Arguments;
 	std::string ProgramName;
-	static std::size_t Version[2];
+	std::size_t Version[2];
 
 	// Splits a string by a delimiter
 	std::vector<std::string> SplitByDelimiter(std::string source, std::string delimiter){
@@ -527,11 +528,11 @@ public:
 			if(Callee2.size() < Callee1.size()) // make sure Callee1 is the shortest
 				std::swap(Callee1, Callee2);
 
-		auto [ArgumentPair_it, success] = Arguments.insert({Callee1, Argument{sizeof...(ParamTypes), Callee1, Callee2}});
-		if(!success)
+		auto insert_pair_ret = Arguments.insert({Callee1, Argument{sizeof...(ParamTypes), Callee1, Callee2}});
+		if(!insert_pair_ret.second)
 			throw std::runtime_error("Insertion of argument failed, maybe the Callee is already used.");
-		ArgumentPair_it->second.InitParamNamesDefault<0, ParamTypes...>();
-		return ArgumentPair_it->second;
+		insert_pair_ret.first->second.InitParamNamesDefault<0, ParamTypes...>();
+		return insert_pair_ret.first->second;
 	}
 
 	/**
@@ -615,21 +616,21 @@ public:
 		};
 
 		std::size_t w = 0;
-		for(int i = 1; i < argc; i++){
+		for(std::size_t i = 1; i < (std::size_t)argc; i++){
 			// check if string starts with -
 			if(isArgument(argv[i])){
 				// single dash with multiple arguments is a compound argument. Disect
 				if(argv[i][1] != '-' && std::strlen(argv[i]) > 2){
-					int k = 0; // keep track of every parameters for each compound argument;
-					for(int j = 1; j < std::strlen(argv[i]); j++){ // j is argv[i] itterator start at 1 to skip -
+					std::size_t k = 0; // keep track of every parameters for each compound argument;
+					for(std::size_t j = 1; j < std::strlen(argv[i]); j++){ // j is argv[i] itterator start at 1 to skip -
 						auto Argpos = Arguments.find("-" + std::string(1, argv[i][j]));
 						if(Argpos == Arguments.end())
 							throw std::invalid_argument("Unkown console argument: -" + std::string(1, argv[i][j]) + " use -h for help");
 						auto insertRef = ArgumentData.insert({{Argpos->second._priority, w++}, std::make_pair(&(Argpos->second), std::vector<std::string>(0))}); // add - argument for later parsing.
 						if(!insertRef.second)
 							throw std::runtime_error("Insertion of argument failed, maybe the key is already used.");
-						int l = 0;
-						for(;l < Argpos->second._paramcount && i + 1 + k + l < argc; l++){
+						std::size_t l = 0;
+						for(;l < Argpos->second._paramcount && i + 1 + k + l < (std::size_t)argc; l++){
 							if(isArgument(argv[i+1+k+l]))
 								throw std::out_of_range("Not enough parameters for compound argument " + std::string(argv[i]) + " use -h for help");
 							insertRef.first->second.second.push_back(argv[i+1+k+l]);
@@ -654,8 +655,8 @@ public:
 					auto insertRef = ArgumentData.insert({{Argpos->second._priority, w++}, std::make_pair(&(Argpos->second), std::vector<std::string>(0))});
 					if(!insertRef.second)
 						throw std::runtime_error("Insertion of argument failed, maybe the key is already used.");
-					int j = 0;
-					for(; i+j+1 < argc; j++){
+					std::size_t j = 0;
+					for(; i+j+1 < (std::size_t)argc; j++){
 						// check if parameter is actually an argument
 						if(isArgument(argv[i+j+1]))
 							break;
@@ -713,9 +714,7 @@ public:
 	}
 };
 
-std::size_t ArgumentParser::Version[2];
 
-
-}; // end of namespace
+} // end of namespace
 
 #undef CalleeLengthBeforeDescription
