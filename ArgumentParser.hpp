@@ -610,9 +610,9 @@ public:
 			std::greater<std::pair<std::size_t, std::size_t>>> ParseAlwaysArguments;
 
 		// checks if a string is an argument
-		auto isArgument = [](const char* string) -> bool{
-			size_t len = std::strlen(string);
-			return (len >= 2 && string[0] == '-' && string[1] != '-' && !std::isdigit(string[1]));
+		auto isArgument = [](std::string Callee) -> bool{
+			return (Callee.size() == 2 && Callee[0] == '-' && Callee[1] != '-' && !std::isdigit(Callee[1])) 
+				|| (Callee.size() > 2 && Callee[0] == '-' && !isdigit(Callee[1]));
 		};
 
 		std::size_t w = 0;
@@ -646,7 +646,9 @@ public:
 				}
 				else{
 					// Find argument
-					auto Argpos = Arguments.find(argv[i]);
+					auto Argpos = std::find_if(Arguments.begin(), Arguments.end(), [&](std::pair<std::string, ArgPar::Argument> A){
+						return A.second == argv[i];
+					});
 					if(Argpos == Arguments.end())
 						throw std::invalid_argument("Unkown console argument: " + std::string(argv[i]) + " use -h for help");
 					// Remove from required Argument count
