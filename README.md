@@ -41,7 +41,7 @@ Available detail functions and their function:
 | Help | Sets the help string for the argument | ```.Help("This is a description about the argument");``` |
 | Required | Marks the argument as required such that an error is generated during CLI parsing if it was not passed | ```.Required()``` |
 | ParseAlways | Marks the argument to always be parsed, even if not all required arguments were passed, useful for informational flags like custom version indicators | ```.ParseAlways()``` |
-| Priorety | Sets the priority of the argument. Higher priority arguments are handld first. Same level priorety arguments are handled based on input order | ```.Priorety()``` |
+| priority | Sets the priority of the argument. Higher priority arguments are handld first. Same level priority arguments are handled based on input order | ```.priority()``` |
 | Action | Sets a function to be called for if the argument is passed. the action function gets send the list of parameters passed determined by the arguments parse function. Thus if any parameters were missing but implicit values were set, those empty spaces are filled with the implicit values, if those are not set but default values are, those are used. Function should return void and accept the parameters as a vector of strings.  | ```.Action(function)``` | 
 | Validator | Sets a custom validator function that is called after the list of parameters is determined in a buffer, Function should return 0 if all parameters are valid or the position of the 1st parameter that failed the validator. Function gets passed the parameters as a vector of strings | ```.Validator(function)``` |
 

@@ -387,14 +387,14 @@ public:
 	}
 
 	/**
-	 * @brief Sets the priorety of the argument
-	 * Arguments can be sorted by priorety, A higher priorety means it will be handled before lower priorety arguments.
-	 * Same level priorety arguments are sorted based on input
-	 * @param priorety The priorety of the argument
+	 * @brief Sets the priority of the argument
+	 * Arguments can be sorted by priority, A higher priority means it will be handled before lower priority arguments.
+	 * Same level priority arguments are sorted based on input
+	 * @param priority The priority of the argument
 	 * @return Argument& The argument reference
 	 */
-	Argument& Priorety(std::size_t priorety){
-		_priority = priorety;
+	Argument& priority(std::size_t priority){
+		_priority = priority;
 		return *this;
 	}
 
@@ -571,7 +571,7 @@ public:
 				}, false)
 			.Help("Displays the software version")
 			.ParseAlways()
-			.Priorety(std::numeric_limits<std::size_t>::max());
+			.priority(std::numeric_limits<std::size_t>::max());
 		addFlag("-h", "--help")
 			.Action([&]
 				(const std::vector<std::string>&){
@@ -582,7 +582,7 @@ public:
 				}, false)
 			.Help("Displays this message")
 			.ParseAlways()
-			.Priorety(std::numeric_limits<std::size_t>::max());
+			.priority(std::numeric_limits<std::size_t>::max());
 	}
 
 	/**
