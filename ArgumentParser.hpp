@@ -239,7 +239,7 @@ class Argument {
 		_ParamNames[I] = get_type_name<TupleTypeAt<I, ParamTypes...>>();
 		InitParamNamesDefault<I+1, ParamTypes...>();
 	}
-	// SFINEA
+	// SFINAE
 	template<std::size_t I = 0, typename ...ParamTypes>
 	inline typename std::enable_if<I == sizeof...(ParamTypes), void>::type InitParamNamesDefault(){}
 
@@ -254,7 +254,7 @@ class Argument {
 		_ParamImplicitValues[I] = ss.str();
 		implicit_value<I+1, ParamTypes...>(t);
 	}
-	//SFINEA
+	//SFINAE
 	template<std::size_t I = 0, typename ...ParamTypes>
 	typename std::enable_if<I == sizeof...(ParamTypes), void>::type implicit_value(std::tuple<ParamTypes...> t){(void)(t);}
 
@@ -269,7 +269,7 @@ class Argument {
 		_ParamValues[I] = ss.str();
 		default_value<I+1, ParamTypes...>(t);
 	}
-	//SFINEA end condition
+	//SFINAE end condition
 	template<std::size_t I = 0, typename ...ParamTypes>
 	typename std::enable_if<I == sizeof...(ParamTypes), void>::type default_value(std::tuple<ParamTypes...> t){(void)(t);}
 
@@ -279,7 +279,7 @@ class Argument {
 		_ParamNames[I] = std::get<I>(t);
 		parameter_name<I+1, ParamTypes...>(t);
 	}
-	//SFINEA
+	//SFINAE
 	template<std::size_t I = 0, typename ...ParamTypes>
 	typename std::enable_if<I == sizeof...(ParamTypes), void>::type parameter_name(std::tuple<ParamTypes...> t){(void)(t);}
 
@@ -518,6 +518,7 @@ public:
 	 */
 	template<typename ...ParamTypes>
 	Argument& addArgument(std::string Callee1, std::string Callee2 = ""){
+		static_assert(sizeof...(ParamTypes) > 0, "addArgument Requires atleast 1 template parameter");
 		auto CalleeFormatValidator = [](const std::string& Callee){
 			return (Callee.size() == 0) || (Callee.size() == 2 && Callee[0] == '-' && Callee[1] != '-' && !std::isdigit(Callee[1])) || (Callee.size() > 2 && Callee[0] == '-' && Callee[1] == '-' && !isdigit(Callee[3]));
 		};
