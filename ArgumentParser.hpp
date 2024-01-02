@@ -27,7 +27,7 @@ public:
 	
 	const char* what() const noexcept override { return _message.c_str(); }
 	const std::string ArgumentName() const {return _ArgumentName;}
-	const std::size_t ArgumentPosition() const {return _ArgumentPosition;}
+	std::size_t ArgumentPosition() const {return _ArgumentPosition;}
 };
 
 class MissingRequiredParameter : public std::exception {
@@ -256,7 +256,7 @@ class Argument {
 	}
 	//SFINEA
 	template<std::size_t I = 0, typename ...ParamTypes>
-	typename std::enable_if<I == sizeof...(ParamTypes), void>::type implicit_value(std::tuple<ParamTypes...> t){}
+	typename std::enable_if<I == sizeof...(ParamTypes), void>::type implicit_value(std::tuple<ParamTypes...> t){(void)(t);}
 
 	// Init default values based on variadic list
 	template<std::size_t I = 0, typename ...ParamTypes>
@@ -271,7 +271,7 @@ class Argument {
 	}
 	//SFINEA end condition
 	template<std::size_t I = 0, typename ...ParamTypes>
-	typename std::enable_if<I == sizeof...(ParamTypes), void>::type default_value(std::tuple<ParamTypes...> t){}
+	typename std::enable_if<I == sizeof...(ParamTypes), void>::type default_value(std::tuple<ParamTypes...> t){(void)(t);}
 
 	// Init parameter names based on variadic list
 	template<std::size_t I = 0, typename ...ParamTypes>
@@ -281,7 +281,7 @@ class Argument {
 	}
 	//SFINEA
 	template<std::size_t I = 0, typename ...ParamTypes>
-	typename std::enable_if<I == sizeof...(ParamTypes), void>::type parameter_name(std::tuple<ParamTypes...> t){}
+	typename std::enable_if<I == sizeof...(ParamTypes), void>::type parameter_name(std::tuple<ParamTypes...> t){(void)(t);}
 
 public:
 	
